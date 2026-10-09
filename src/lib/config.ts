@@ -5,7 +5,6 @@ export const LIMITS = {
   generationsPerSessionDay: Number(process.env.GENERATIONS_PER_SESSION_DAY || 1),
   revisionsPerPage: Number(process.env.REVISIONS_PER_PAGE || 1),
   globalDailyGenerationCap: Number(process.env.GLOBAL_DAILY_GENERATION_CAP || 20),
-  maxConcurrentJobs: Number(process.env.MAX_CONCURRENT_JOBS || 1),
   expiryDays: Number(process.env.PAGE_EXPIRY_DAYS || 7),
 };
 

@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { error, mutationAllowed } from "@/lib/http";
 import { ipAllowed, recordMetric } from "@/lib/limits";
-import { getPageBySlug, redis } from "@/lib/store";
+import { getPageBySlug } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
 import { reportSchema } from "@/lib/validation";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -13,8 +14,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!(await ipAllowed(ip, "report", 5))) return error("Too many reports", 429);
   const page = await getPageBySlug(slug);
   if (page) {
-    await redis.lpush("reports:pending", { pageId: page.id, reason: parsed.data.reason, createdAt: new Date().toISOString() });
-    await recordMetric("reports");
+    const { error: insertError } = await supabase.from("page_reports").insert({ page_id: page.id, reason: parsed.data.reason });
+    if (!insertError) await recordMetric("reports");
   }
   return NextResponse.json({ ok: true });
 }

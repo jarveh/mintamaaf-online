@@ -8,16 +8,17 @@
 
 ## Stage 2 — Complete anonymous journey
 
-- [x] Add private Blob artifacts, Redis page/job records, signed QStash worker, anonymous ownership, limits, versioning, isolated preview, publish/unpublish, expiry, reports, and share controls.
+- [x] Add private artifacts, page/job records, background generation worker, anonymous ownership, limits, versioning, isolated preview, publish/unpublish, expiry, reports, and share controls.
 - [x] Add strict generated HTML and CSS sanitizer, public page CSP, and malicious output tests.
-- [ ] Verify the full journey with connected Vercel Blob, Upstash, QStash, and Stitch accounts.
+- [x] Consolidate persistence on Supabase (pulled forward from V1.5): Postgres tables replace Upstash Redis, private Storage replaces Vercel Blob, pg_net + pg_cron replace QStash dispatch.
+- [ ] Verify the full journey with connected Supabase and Stitch accounts.
 
 ## Stage 3 — Deploy and release
 
-- [ ] Purchase/configure `mintamaaf.online`; deploy app and `pages.mintamaaf.online` on Vercel with private Blob and Upstash credentials.
+- [ ] Purchase/configure `mintamaaf.online`; deploy app and `pages.mintamaaf.online` on Vercel; set `JOBS_MODE=supabase` and the Supabase `app_config` `worker_url`/`jobs_secret` rows.
 - [ ] Run the release checklist in README, verify mobile/desktop behavior, provider timeouts, costs, quotas, and security headers.
 - [ ] Enable monitoring and review incoming reports.
 
 ## V1.5
 
-Move records/artifacts to Supabase, add Supabase Auth, and design an owner-claim flow for existing anonymous pages. Firebase is out of scope.
+Add Supabase Auth and design an owner-claim flow for existing anonymous pages. Firebase is out of scope.

@@ -5,7 +5,7 @@ import { createSchema } from "@/lib/validation";
 import { currentOwnerToken, hashToken, newOwnerToken, ownerCookie } from "@/lib/owner";
 import { generationAllowed, ipAllowed, recordMetric } from "@/lib/limits";
 import { enqueueJob } from "@/lib/queue";
-import { redis, saveJob, savePage } from "@/lib/store";
+import { findIdempotentRecord, saveIdempotentRecord, saveJob, savePage } from "@/lib/store";
 import type { JobRecord, PageRecord } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
@@ -14,8 +14,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return error("Please enter a story of 20–1200 characters and choose a tone and language.");
   const token = (await currentOwnerToken()) || newOwnerToken();
   const ownerHash = hashToken(token);
-  const idempotency = `idempotency:${ownerHash}:${parsed.data.idempotencyKey}`;
-  const previous = await redis.get<{ jobId: string; pageId: string }>(idempotency);
+  const previous = await findIdempotentRecord(ownerHash, parsed.data.idempotencyKey);
   if (previous) return NextResponse.json(previous, { status: 202 });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (!(await ipAllowed(ip, "generate", 3)) || !(await generationAllowed(ownerHash))) return error("Today's generation limit has been reached.", 429);
@@ -31,10 +30,11 @@ export async function POST(request: NextRequest) {
   try {
     await savePage(page);
     await saveJob(job);
-    await redis.set(idempotency, { jobId: job.id, pageId: page.id }, { ex: 60 * 60 * 24 });
+    await saveIdempotentRecord(ownerHash, parsed.data.idempotencyKey, job.id, page.id);
     await enqueueJob(job.id);
     await recordMetric("generation_attempts");
-  } catch {
+  } catch (cause) {
+    console.error("generation enqueue failed", typeof cause === "object" && cause ? JSON.stringify(cause).slice(0, 300) : String(cause));
     job.status = "failed"; job.errorCode = "QUEUE_UNAVAILABLE"; job.finishedAt = new Date().toISOString();
     await saveJob(job).catch(() => undefined);
     return error("Generation is temporarily unavailable. Please try later.", 503);

@@ -3,7 +3,8 @@ import { stitch } from "@google/stitch-sdk";
 import type { DesignGenerator, DesignResult } from "./types";
 
 const MAX_HTML_BYTES = 2_000_000;
-const ALLOWED_DOWNLOAD_HOSTS = ["storage.googleapis.com", "googleusercontent.com", "googleapis.com"];
+// Verified Stitch 0.3.5 download hosts: HTML on *.usercontent.google.com, screenshots on lh3.googleusercontent.com.
+const ALLOWED_DOWNLOAD_HOSTS = ["storage.googleapis.com", "googleusercontent.com", "googleapis.com", "usercontent.google.com"];
 
 function trustedDownloadUrl(raw: string): URL {
   const url = new URL(raw);
@@ -12,6 +13,22 @@ function trustedDownloadUrl(raw: string): URL {
     throw new Error("Unrecognized provider download host");
   }
   return url;
+}
+
+// getHtml() normally returns a cached download URL from the generation response,
+// but when it is missing the get_screen fallback races the backend and can fail
+// transiently; a short bounded retry keeps that off the permanent-failure path.
+async function resolveDownloadUrl(fetchUrl: () => Promise<string>, what: string): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const url = await fetchUrl();
+      if (url) return url;
+      lastError = new Error(`Stitch did not return ${what}`);
+    } catch (cause) { lastError = cause; }
+    await new Promise((resolve) => setTimeout(resolve, 15_000));
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Stitch did not return ${what}`);
 }
 
 async function providerDownload(raw: string, maxBytes: number): Promise<Uint8Array> {
@@ -36,13 +53,12 @@ async function providerDownload(raw: string, maxBytes: number): Promise<Uint8Arr
 }
 
 async function fromScreen(projectId: string, screen: { id: string; getHtml(): Promise<string>; getImage(): Promise<string> }): Promise<DesignResult> {
-  const htmlUrl = await screen.getHtml();
-  if (!htmlUrl) throw new Error("Stitch did not return HTML");
+  const htmlUrl = await resolveDownloadUrl(() => screen.getHtml(), "HTML");
   const html = new TextDecoder().decode(await providerDownload(htmlUrl, MAX_HTML_BYTES));
   let screenshot: Uint8Array | undefined;
   try {
-    const imageUrl = await screen.getImage();
-    if (imageUrl) screenshot = await providerDownload(imageUrl, 4_000_000);
+    const imageUrl = await resolveDownloadUrl(() => screen.getImage(), "screenshot");
+    screenshot = await providerDownload(imageUrl, 4_000_000);
   } catch {
     // Screenshots are optional; the sanitized HTML remains usable.
   }

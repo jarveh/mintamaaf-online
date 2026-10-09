@@ -1,30 +1,33 @@
 import { existsSync } from "node:fs";
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-const { Redis } = await import("@upstash/redis");
-const redis = Redis.fromEnv();
+const { createClient } = await import("@supabase/supabase-js");
+const url = process.env.SUPABASE_URL;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!url || !key) throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+const supabase = createClient(url, key, { auth: { persistSession: false } });
 const [action, pageId] = process.argv.slice(2);
 
 if (action === "list") {
-  const reports = await redis.lrange<{ pageId: string; reason: string; createdAt: string }>("reports:pending", 0, 49);
+  const { data: reports, error } = await supabase
+    .from("page_reports")
+    .select("page_id, reason, created_at, pages(slug)")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
   console.log(JSON.stringify(reports, null, 2));
 } else if (action === "block" && pageId && /^[0-9a-f-]{36}$/i.test(pageId)) {
-  const page = await redis.get<Record<string, unknown>>(`page:${pageId}`);
-  if (!page) throw new Error("Page not found");
-  page.status = "blocked";
-  page.activeVersion = null;
-  await redis.set(`page:${pageId}`, page, { ex: 60 * 60 * 24 * 60 });
+  const { data, error } = await supabase.from("pages").update({ status: "blocked", active_version: null }).eq("id", pageId).select("id");
+  if (error) throw error;
+  if (!data?.length) throw new Error("Page not found");
   console.log(`Blocked ${pageId}`);
 } else if (action === "delete" && pageId && /^[0-9a-f-]{36}$/i.test(pageId)) {
-  const page = await redis.get<{ slug: string; latestVersion: number }>(`page:${pageId}`);
-  if (!page) throw new Error("Page not found");
-  const { del } = await import("@vercel/blob");
-  for (let version = 1; version <= page.latestVersion; version++) {
-    const record = await redis.get<{ htmlPath: string; screenshotPath?: string }>(`version:${pageId}:${version}`);
-    if (record) await del([record.htmlPath, ...(record.screenshotPath ? [record.screenshotPath] : [])]);
-    await redis.del(`version:${pageId}:${version}`);
-  }
-  await redis.del(`page:${pageId}`, `slug:${page.slug}`);
-  await redis.zrem("pages:cleanup", pageId);
+  const { data: versions, error: versionsError } = await supabase.from("page_versions").select("html_path, screenshot_path").eq("page_id", pageId);
+  if (versionsError) throw versionsError;
+  const paths = (versions || []).flatMap((v) => [v.html_path, ...(v.screenshot_path ? [v.screenshot_path] : [])]);
+  if (paths.length) await supabase.storage.from("pages").remove(paths);
+  const { data, error } = await supabase.from("pages").delete().eq("id", pageId).select("id");
+  if (error) throw error;
+  if (!data?.length) throw new Error("Page not found");
   console.log(`Deleted ${pageId}`);
 } else {
   console.error("Usage: npm run moderate -- list | block <page-id> | delete <page-id>");

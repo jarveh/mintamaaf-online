@@ -6,7 +6,12 @@ const { stitch } = await import("@google/stitch-sdk");
 const started = Date.now();
 const project = await stitch.createProject("Mintamaaf SDK spike");
 const screen = await project.generate("A warm mobile apology note with a flower illustration, no scripts or forms", "MOBILE");
-const htmlUrl = await screen.getHtml();
+// getHtml falls back to a get_screen call that races the backend; retry briefly.
+let htmlUrl = "";
+for (let attempt = 0; attempt < 3 && !htmlUrl; attempt++) {
+  try { htmlUrl = await screen.getHtml(); } catch { if (attempt === 2) throw new Error("getHtml failed after 3 attempts"); }
+  if (!htmlUrl) await new Promise((resolve) => setTimeout(resolve, 15_000));
+}
 const imageUrl = await screen.getImage().catch(() => "");
 const htmlResponse = await fetch(htmlUrl, { redirect: "error", signal: AbortSignal.timeout(15_000) });
 if (!htmlResponse.ok) throw new Error(`HTML download failed: ${htmlResponse.status}`);

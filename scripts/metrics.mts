@@ -1,8 +1,13 @@
 import { existsSync } from "node:fs";
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-const { Redis } = await import("@upstash/redis");
-const redis = Redis.fromEnv();
+const { createClient } = await import("@supabase/supabase-js");
+const url = process.env.SUPABASE_URL;
+const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!url || !key) throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+const supabase = createClient(url, key, { auth: { persistSession: false } });
 const day = process.argv[2] || new Date().toISOString().slice(0, 10);
 const names = ["generation_attempts", "generation_successes", "generation_failures", "reports", "storage_bytes"];
-const counts = await Promise.all(names.map((name) => redis.get<number>(`metric:${name}:${day}`)));
-console.log(JSON.stringify(Object.fromEntries(names.map((name, index) => [name, counts[index] || 0])), null, 2));
+const { data, error } = await supabase.from("usage_counters").select("scope, amount").eq("period", day).like("scope", "metric:%");
+if (error) throw error;
+const counts = new Map((data || []).map((row) => [row.scope, Number(row.amount)]));
+console.log(JSON.stringify(Object.fromEntries(names.map((name) => [name, counts.get(`metric:${name}`) || 0])), null, 2));
