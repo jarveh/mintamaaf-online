@@ -66,14 +66,26 @@ async function fromScreen(projectId: string, screen: { id: string; getHtml(): Pr
 }
 
 class StitchGenerator implements DesignGenerator {
-  async generate(prompt: string) {
+  async generate(input: { prompt: string; imagePath?: string }) {
     const project = await stitch.createProject("Mintamaaf page");
-    const screen = await project.generate(prompt, "MOBILE");
+    // An attached image becomes a screen in the project; editing it with the
+    // prompt turns the image into the design's starting point. Any failure in
+    // that path falls back to a plain text generation — attachments are a
+    // bonus, never a blocker.
+    if (input.imagePath) {
+      try {
+        const [uploaded] = await project.upload(input.imagePath);
+        if (uploaded) return await fromScreen(project.id, await uploaded.edit(input.prompt, "MOBILE"));
+      } catch {
+        // fall through to text-only generation
+      }
+    }
+    const screen = await project.generate(input.prompt, "MOBILE");
     return fromScreen(project.id, screen);
   }
 
   async revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string }) {
-    if (!input.projectId || !input.screenId) return this.generate(`${input.prompt}\nRevision: ${input.instruction}`);
+    if (!input.projectId || !input.screenId) return this.generate({ prompt: `${input.prompt}\nRevision: ${input.instruction}` });
     const project = stitch.project(input.projectId);
     const screen = await project.screen(input.screenId).edit(input.instruction, "MOBILE");
     return fromScreen(project.id, screen);
@@ -81,11 +93,11 @@ class StitchGenerator implements DesignGenerator {
 }
 
 class MockGenerator implements DesignGenerator {
-  async generate(prompt: string): Promise<DesignResult> {
-    const escaped = prompt.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-    return { provider: "mock", html: `<!doctype html><html><head><title>A little note</title><style>body{font-family:Georgia,serif;background:#fff7ee;color:#402f39;padding:3rem;max-width:44rem;margin:auto}h1{font-size:3rem}p{line-height:1.7}.demo{background:#ffe9a7;padding:1rem;border-radius:1rem}</style></head><body><p class="demo">Demo preview — generated without Stitch</p><h1>I'm sorry 💐</h1><p>${escaped}</p><p>Thank you for hearing me out.</p></body></html>` };
+  async generate(input: { prompt: string; imagePath?: string }): Promise<DesignResult> {
+    const escaped = input.prompt.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+    return { provider: "mock", html: `<!doctype html><html><head><title>A little note</title><style>body{font-family:Georgia,serif;background:#fff7ee;color:#402f39;padding:3rem;max-width:44rem;margin:auto}h1{font-size:3rem}p{line-height:1.7}.demo{background:#ffe9a7;padding:1rem;border-radius:1rem}</style></head><body><p class="demo">Demo preview — generated without Stitch</p><h1>I'm sorry 💐</h1><p>${escaped}</p>${input.imagePath ? "<p>(An attached image would guide the design here.)</p>" : ""}<p>Thank you for hearing me out.</p></body></html>` };
   }
-  async revise(input: { prompt: string; instruction: string }) { return this.generate(`${input.prompt}\n${input.instruction}`); }
+  async revise(input: { prompt: string; instruction: string }) { return this.generate({ prompt: `${input.prompt}\n${input.instruction}` }); }
 }
 
 export function designGenerator(): DesignGenerator {

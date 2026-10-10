@@ -8,7 +8,8 @@ const draftRetention = 60 * 60 * 24 * 45;
 
 type PageRow = {
   id: string; slug: string; owner_hash: string; prompt: string;
-  recipient_name: string | null; sender_name: string | null; tone: PageRecord["tone"]; language: PageRecord["language"];
+  recipient_name: string | null; sender_name: string | null; tone: PageRecord["tone"] | null; language: PageRecord["language"] | null;
+  attachment_path: string | null; attachment_mime: string | null;
   status: PageRecord["status"]; latest_version: number; active_version: number | null; revision_count: number;
   created_at: string; published_at: string | null; expires_at: string | null;
 };
@@ -29,7 +30,9 @@ function toPage(row: PageRow): PageRecord {
   return {
     id: row.id, slug: row.slug, ownerHash: row.owner_hash, prompt: row.prompt,
     recipientName: row.recipient_name || undefined, senderName: row.sender_name || undefined,
-    tone: row.tone, language: row.language, status: row.status,
+    tone: row.tone || undefined, language: row.language || undefined,
+    attachmentPath: row.attachment_path || undefined, attachmentMime: row.attachment_mime || undefined,
+    status: row.status,
     latestVersion: row.latest_version, activeVersion: row.active_version, revisionCount: row.revision_count,
     createdAt: iso(row.created_at)!, publishedAt: iso(row.published_at), expiresAt: iso(row.expires_at),
   };
@@ -54,7 +57,16 @@ function pageRow(page: PageRecord) {
   return {
     id: page.id, slug: page.slug, owner_hash: page.ownerHash, prompt: page.prompt,
     recipient_name: page.recipientName || null, sender_name: page.senderName || null,
-    tone: page.tone, language: page.language, status: page.status,
+    // Legacy columns: `tone` is NOT NULL until migration 0002 relaxes it, and
+    // `language` is NOT NULL with a default (explicit null bypasses defaults),
+    // so send a placeholder / omit instead of null — these fields are no
+    // longer collected in the form and nothing reads them.
+    tone: page.tone || "heartfelt",
+    ...(page.language ? { language: page.language } : {}),
+    // Only sent when set, so pages keep saving on projects that have not run
+    // migration 0002 yet (and so NULL columns stay untouched on updates).
+    ...(page.attachmentPath ? { attachment_path: page.attachmentPath, attachment_mime: page.attachmentMime || null } : {}),
+    status: page.status,
     latest_version: page.latestVersion, active_version: page.activeVersion, revision_count: page.revisionCount,
     created_at: page.createdAt, published_at: page.publishedAt || null, expires_at: page.expiresAt || null,
     cleanup_at: new Date(cleanupAt).toISOString(),
@@ -155,12 +167,25 @@ export async function loadScreenshot(path: string): Promise<Uint8Array | null> {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+export async function saveAttachment(pageId: string, bytes: Uint8Array, mime: string): Promise<string> {
+  const ext = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
+  const path = `pages/${pageId}/attachment.${ext}`;
+  await uploadObject(path, bytes, mime);
+  return path;
+}
+export async function loadAttachment(path: string): Promise<Uint8Array | null> {
+  const blob = await downloadObject(path);
+  if (!blob) return null;
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 export async function deletePageData(page: PageRecord): Promise<void> {
   const paths: string[] = [];
   for (let versionNumber = 1; versionNumber <= page.latestVersion; versionNumber++) {
     const version = await getVersion(page.id, versionNumber);
     if (version) paths.push(version.htmlPath, ...(version.screenshotPath ? [version.screenshotPath] : []));
   }
+  if (page.attachmentPath) paths.push(page.attachmentPath);
   if (paths.length) await supabase.storage.from(PAGE_BUCKET).remove(paths);
   const { error } = await supabase.from("pages").delete().eq("id", page.id);
   if (error) throw error;

@@ -1,12 +1,33 @@
 import "server-only";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { designGenerator } from "./generator";
 import { recordMetric, recordStorageBytes } from "./limits";
 import { sanitizeGeneratedHtml } from "./sanitize";
-import { claimJob, getJob, getPage, getVersion, retryJob, saveHtml, saveJob, savePage, saveScreenshot, saveVersion } from "./store";
-import type { VersionRecord } from "./types";
-import { buildPrompt } from "./validation";
+import { claimJob, getJob, getPage, getVersion, loadAttachment, retryJob, saveHtml, saveJob, savePage, saveScreenshot, saveVersion } from "./store";
+import type { PageRecord, VersionRecord } from "./types";
+import { buildPrompt, detectLanguage } from "./validation";
 
 export type JobOutcome = "ran" | "busy" | "skipped";
+
+// Write the stored attachment to a temp file for the SDK's upload(path) API.
+// Returns the temp dir alongside the file so the caller can clean it up.
+// Returns undefined when anything is off — the generation continues text-only.
+async function attachmentImagePath(page: PageRecord): Promise<{ dir: string; file: string } | undefined> {
+  if (!page.attachmentPath) return undefined;
+  try {
+    const bytes = await loadAttachment(page.attachmentPath);
+    if (!bytes) return undefined;
+    const dir = await mkdtemp(join(tmpdir(), "mintamaaf-"));
+    const ext = page.attachmentMime === "image/jpeg" ? "jpg" : page.attachmentMime === "image/webp" ? "webp" : "png";
+    const file = join(dir, `attachment.${ext}`);
+    await writeFile(file, bytes);
+    return { dir, file };
+  } catch {
+    return undefined;
+  }
+}
 
 // Claim and run one queued job end-to-end. "busy" means the concurrency cap is
 // hit or the job is not yet due (the dispatch caller should try again later);
@@ -26,17 +47,20 @@ export async function processQueuedJob(jobId: string): Promise<JobOutcome> {
     await saveJob(job);
     return "skipped";
   }
+  let attachmentDir: string | undefined;
   try {
     job.progressLabel = job.kind === "revise" ? "Revising your page" : "Designing your page";
     await saveJob(job);
-    const prompt = buildPrompt({ prompt: page.prompt, recipientName: page.recipientName, senderName: page.senderName, tone: page.tone, language: page.language, idempotencyKey: crypto.randomUUID() });
+    const prompt = buildPrompt(page.prompt);
+    const imagePath = job.kind === "revise" ? undefined : await attachmentImagePath(page);
+    attachmentDir = imagePath?.dir;
     const previous = job.kind === "revise" ? await getVersion(page.id, page.latestVersion) : null;
     const result = job.kind === "revise"
       ? await designGenerator().revise({ projectId: previous?.projectId, screenId: previous?.screenId, prompt, instruction: job.instruction || "Make it warmer" })
-      : await designGenerator().generate(prompt);
+      : await designGenerator().generate({ prompt, imagePath: imagePath?.file });
     job.progressLabel = "Checking your page";
     await saveJob(job);
-    const html = sanitizeGeneratedHtml(result.html, page.language);
+    const html = sanitizeGeneratedHtml(result.html, detectLanguage(page.prompt));
     const versionNumber = page.latestVersion + 1;
     const htmlPath = await saveHtml(page.id, versionNumber, html);
     let screenshotPath: string | undefined;
@@ -72,5 +96,7 @@ export async function processQueuedJob(jobId: string): Promise<JobOutcome> {
     await recordMetric("generation_failures");
     console.error("generation failed", { jobId: job.id, code: job.errorCode, message: message.slice(0, 160) });
     return "ran";
+  } finally {
+    if (attachmentDir) await rm(attachmentDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }

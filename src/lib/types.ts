@@ -8,10 +8,14 @@ export interface PageRecord {
   slug: string;
   ownerHash: string;
   prompt: string;
+  /** Legacy optional fields from the earlier To/From/Tone/Language form. */
   recipientName?: string;
   senderName?: string;
-  tone: Tone;
-  language: Language;
+  tone?: Tone;
+  language?: Language;
+  /** Optional reference image the creator attached; uploaded to Stitch as design input. */
+  attachmentPath?: string;
+  attachmentMime?: string;
   status: PageStatus;
   latestVersion: number;
   activeVersion: number | null;
@@ -54,6 +58,6 @@ export interface DesignResult {
 }
 
 export interface DesignGenerator {
-  generate(prompt: string): Promise<DesignResult>;
+  generate(input: { prompt: string; imagePath?: string }): Promise<DesignResult>;
   revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string }): Promise<DesignResult>;
 }

@@ -8,7 +8,9 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "doctor": "tsx scripts/doctor.mts",
     "stitch:spike": "tsx scripts/stitch-spike.mts",
+    "stitch:upload-spike": "tsx scripts/stitch-upload-spike.mts",
     "moderate": "tsx scripts/moderate.mts",
     "metrics": "tsx scripts/metrics.mts"
   },

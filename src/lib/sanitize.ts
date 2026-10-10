@@ -2,19 +2,31 @@ import sanitizeHtml from "sanitize-html";
 import postcss, { type ChildNode, type Declaration } from "postcss";
 
 const PROPERTIES = new Set([
-  "background", "background-color", "border", "border-color", "border-radius", "border-style", "border-width",
-  "box-shadow", "box-sizing", "color", "display", "flex", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap",
-  "align-items", "align-self", "justify-content", "gap", "grid", "grid-template-columns", "grid-template-rows", "grid-column", "grid-row",
-  "font", "font-family", "font-size", "font-style", "font-weight", "letter-spacing", "line-height", "text-align", "text-decoration",
-  "text-transform", "white-space", "word-break", "width", "height", "min-width", "min-height", "max-width", "max-height",
+  "background", "background-color", "background-image", "background-size", "background-position", "background-repeat", "background-clip", "background-origin",
+  "border", "border-color", "border-radius", "border-style", "border-width",
+  "box-shadow", "box-sizing", "color", "display", "flex", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap", "flex-flow", "order",
+  "align-items", "align-self", "align-content", "justify-content", "justify-items", "justify-self", "place-items", "place-content",
+  "gap", "grid", "grid-template-columns", "grid-template-rows", "grid-column", "grid-row",
+  "font", "font-family", "font-size", "font-style", "font-weight", "font-variant", "letter-spacing", "line-height", "text-align", "text-decoration",
+  "text-decoration-color", "text-decoration-style", "text-decoration-thickness", "text-underline-offset", "text-shadow", "text-transform",
+  "white-space", "word-break", "word-spacing", "vertical-align",
+  "width", "height", "min-width", "min-height", "max-width", "max-height", "inset", "float", "clear",
   "margin", "margin-top", "margin-right", "margin-bottom", "margin-left", "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
-  "opacity", "overflow", "overflow-x", "overflow-y", "position", "top", "right", "bottom", "left", "z-index", "transform",
-  "transition", "transition-duration", "transition-property", "vertical-align", "object-fit", "aspect-ratio", "list-style", "cursor"
+  "opacity", "overflow", "overflow-x", "overflow-y", "position", "top", "right", "bottom", "left", "z-index",
+  "transform", "transform-origin", "transition", "transition-duration", "transition-property", "transition-timing-function", "transition-delay",
+  "animation", "animation-name", "animation-duration", "animation-delay", "animation-iteration-count", "animation-direction", "animation-fill-mode", "animation-play-state", "animation-timing-function",
+  "filter", "backdrop-filter", "mix-blend-mode", "clip-path", "outline", "outline-color", "outline-offset", "outline-style", "outline-width",
+  "object-fit", "object-position", "aspect-ratio", "list-style", "cursor", "will-change"
 ]);
 
+// url()/expression() stay banned everywhere (including inside custom-property
+// values), but var() references are safe: any custom property whose value held
+// a banned function was already dropped, so the reference resolves to nothing.
 function safeDeclaration(node: Declaration): boolean {
-  return PROPERTIES.has(node.prop.toLowerCase()) && !node.important &&
-    !/url\s*\(|@import|expression\s*\(|var\s*\(|\\|[<>]/i.test(node.value) && node.value.length < 1000;
+  const prop = node.prop.toLowerCase();
+  if (!prop.startsWith("--") && !PROPERTIES.has(prop)) return false;
+  return !node.important &&
+    !/url\s*\(|@import|expression\s*\(|image\s*\(|\\|[<>]/i.test(node.value) && node.value.length < 1000;
 }
 
 function cleanDeclarations(input: string): string {
@@ -36,7 +48,11 @@ function cleanStylesheets(input: string): string {
         if (node.selector.length > 1000 || /[<>\\]/.test(node.selector)) node.remove();
         else visit(node.nodes || []);
       } else if (node.type === "atrule") {
-        if (node.name.toLowerCase() !== "media" || !/^(\s*\(?\s*(max|min)-width\s*:\s*\d+(px|rem)\s*\)?\s*(and\s*\(?\s*(max|min)-width\s*:\s*\d+(px|rem)\s*\)?\s*)?)$/.test(node.params)) node.remove();
+        const name = node.name.toLowerCase();
+        if (name === "keyframes") {
+          if (!/^[A-Za-z][\w-]{0,60}$/.test(node.params.trim().replace(/^['"]|['"]$/g, ""))) node.remove();
+          else visit(node.nodes || []);
+        } else if (name !== "media" || !/^(\s*\(?\s*(max|min)-width\s*:\s*\d+(px|rem)\s*\)?\s*(and\s*\(?\s*(max|min)-width\s*:\s*\d+(px|rem)\s*\)?\s*)?)$/.test(node.params)) node.remove();
         else visit(node.nodes || []);
       } else node.remove();
     }
