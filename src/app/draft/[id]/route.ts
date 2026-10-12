@@ -14,5 +14,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const record = await getVersion(id, version);
   const html = record && await loadHtml(record.htmlPath);
   if (!html) return new Response("Preview unavailable", { status: 404 });
-  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PAGE_CSP.replace("frame-ancestors 'none'", `frame-ancestors ${APP_ORIGIN}`), "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "private, no-store" } });
+  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PAGE_CSP.replace("frame-ancestors 'none'", `frame-ancestors ${APP_ORIGIN}`), "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow" } });
 }

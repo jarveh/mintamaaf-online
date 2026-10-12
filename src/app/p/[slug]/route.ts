@@ -3,6 +3,8 @@ import { PUBLIC_PAGE_ORIGIN } from "@/lib/config";
 import { PAGE_CSP } from "@/lib/sanitize";
 import { getPageBySlug, getVersion, loadHtml } from "@/lib/store";
 
+const PAGE_HEADERS = { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PAGE_CSP, "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow" } as const;
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   if (request.nextUrl.origin !== PUBLIC_PAGE_ORIGIN) return unavailable();
   const { slug } = await params;
@@ -12,9 +14,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const version = await getVersion(page.id, page.activeVersion);
   const html = version && await loadHtml(version.htmlPath);
   if (!html) return unavailable();
-  return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PAGE_CSP, "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store" } });
+  return new Response(html, { headers: PAGE_HEADERS });
 }
 
 function unavailable(): Response {
-  return new Response("<!doctype html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Page unavailable</title></head><body style=\"font-family:system-ui;padding:3rem;text-align:center\"><h1>This page is unavailable</h1><p>It may have expired or been removed.</p></body></html>", { status: 404, headers: { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": PAGE_CSP, "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store" } });
+  return new Response("<!doctype html><html><head><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Page unavailable</title></head><body style=\"font-family:system-ui;padding:3rem;text-align:center\"><h1>This page is unavailable</h1><p>It may have expired or been removed.</p></body></html>", { status: 404, headers: PAGE_HEADERS });
 }

@@ -1,5 +1,8 @@
 export const APP_ORIGIN = process.env.APP_ORIGIN || "http://localhost:3000";
 export const PUBLIC_PAGE_ORIGIN = process.env.PUBLIC_PAGE_ORIGIN || "http://localhost:3000";
+// Canonical public URL of the main app (metadata, sitemap, robots). The isolated
+// page origin stays separate: published pages are never listed for search.
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || APP_ORIGIN;
 export const COOKIE_NAME = process.env.NODE_ENV === "production" ? "__Host-mintamaaf-owner" : "mintamaaf-owner";
 // Beta mode: effectively unlimited. Counters still record every attempt, so
 // re-tightening later is only an env-var/defaults change (see .env.example).
