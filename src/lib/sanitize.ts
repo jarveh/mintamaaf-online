@@ -101,6 +101,10 @@ export function sanitizeGeneratedHtml(raw: string, language: "en" | "ms" = "en",
       : { "*": ["class", "id", "title", "role", "aria-label", "aria-hidden", "style", "lang", "dir"], a: ["href"] },
     allowedSchemes: [],
     disallowedTagsMode: "discard",
+    // Head-only elements must lose their text too: with plain tag-discard the
+    // raw <title> string survives as a stray text node at the top of <body>
+    // and renders as visible text (defaults included — specifying replaces).
+    nonTextTags: ["style", "script", "textarea", "option", "noscript", "title", "head"],
     transformTags: {
       ...(attachmentSrc ? { img: attachmentImageTransform(attachmentSrc) } : {}),
       "*": (tagName, attribs) => {

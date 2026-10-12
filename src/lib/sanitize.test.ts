@@ -27,6 +27,14 @@ describe("generated HTML boundary", () => {
     expect(clean).toContain('<html lang="ms">');
   });
 
+  it("drops head-only content like the document title instead of leaking it as visible body text", () => {
+    const raw = `<!doctype html><html><head><title>For Little Pinky — With All My Heart from Little Cool Blue</title><style>body{color:#333}</style></head><body><main><p>I am sorry I missed your birthday party last weekend.</p></main></body></html>`;
+    const clean = sanitizeGeneratedHtml(raw);
+    expect(clean).not.toContain("For Little Pinky");
+    expect(clean).not.toMatch(/<body>\s*[^<]/);
+    expect(clean).toContain("I am sorry I missed your birthday party");
+  });
+
   it("keeps expressive plain CSS: custom properties, gradients, keyframes, shadows, filters", () => {
     const css = `:root{--ink:#22303f;--accent:#e2725b}body{background:linear-gradient(180deg,#eef4fb,#ffffff);color:var(--ink)}h1{text-shadow:0 2px 8px rgba(0,0,0,.15);filter:drop-shadow(0 4px 6px rgba(0,0,0,.1))}.card{background:#fff;border-radius:24px;box-shadow:0 10px 30px rgba(34,48,63,.12)}@keyframes float-in{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}.card{animation:float-in .6s ease-out both}p{font-family:Georgia,serif}`;
     const clean = sanitizeGeneratedHtml(`<style>${css}</style><main><h1>Dear Sam</h1><div class="card"><p>I hope your day was wonderful from start to finish.</p></div></main>`);
