@@ -46,6 +46,11 @@ if (supabaseOk) {
   const { error } = await supabase.from("pages").select("attachment_path, attachment_mime").limit(1);
   report("migration 0002 (attachments)", !error, error ? `missing — run supabase/migrations/0002_form_and_attachments.sql in the SQL editor (${error.message})` : "attachment columns present");
 }
+// Migration 0004: pages.mode ('guided' | 'freestyle') for the generation modes.
+if (supabaseOk) {
+  const { error } = await supabase.from("pages").select("mode").limit(1);
+  report("migration 0004 (page mode)", !error, error ? `missing — run supabase/migrations/0004_page_mode.sql in the SQL editor (${error.message})` : "mode column present");
+}
 if (!supabaseOk) {
   console.log("\nTables are missing — run supabase/migrations/0001_init.sql in the Supabase SQL editor (or `supabase link && supabase db push`), then re-run doctor.");
 }

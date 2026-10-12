@@ -2,12 +2,15 @@ export type Tone = "heartfelt" | "cute" | "funny" | "minimalist";
 export type Language = "en" | "ms";
 export type PageStatus = "draft" | "published" | "unpublished" | "blocked";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
+/** Guided: the app art-directs a one-page note. Freestyle: the creator's prompt is the design brief. */
+export type GenerationMode = "guided" | "freestyle";
 
 export interface PageRecord {
   id: string;
   slug: string;
   ownerHash: string;
   prompt: string;
+  mode: GenerationMode;
   /** Legacy optional fields from the earlier To/From/Tone/Language form. */
   recipientName?: string;
   senderName?: string;
@@ -59,5 +62,5 @@ export interface DesignResult {
 
 export interface DesignGenerator {
   generate(input: { prompt: string; imagePath?: string }): Promise<DesignResult>;
-  revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string }): Promise<DesignResult>;
+  revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string; imagePath?: string }): Promise<DesignResult>;
 }

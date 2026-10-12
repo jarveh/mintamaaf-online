@@ -51,7 +51,7 @@ machine); `npm run doctor` verifies whether migrations are applied.
 
 | Area | File(s) |
 |---|---|
-| Prompt assembly (verbatim user words + quality/technical wrapper) | `src/lib/validation.ts` `buildPrompt()` |
+| Prompt assembly (verbatim user words + mode wrapper: guided art direction / freestyle brief passthrough) | `src/lib/validation.ts` `buildPrompt()` |
 | Language detection (Malay heuristic; no language form field) | `src/lib/validation.ts` `detectLanguage()` |
 | Stitch adapter (SDK 0.3.5, uploads, retries, allowlisted download hosts) | `src/lib/generator.ts` |
 | Sanitizer + `PAGE_CSP` | `src/lib/sanitize.ts` |
@@ -108,8 +108,22 @@ machine); `npm run doctor` verifies whether migrations are applied.
   are allowed. `url()`, `@import`, `image()`, `expression()`, escapes and
   `!important` stay banned everywhere (including inside custom-property
   values). `img`/`<svg>`/`@font-face` remain stripped.
+- **2026-10-12 — Two generation modes (guided/freestyle).** The form offers
+  Guided (default; the existing one-page apology art direction) and Freestyle
+  (the creator's prompt IS the design brief — layout, colors, structure,
+  imagery — forwarded to Stitch with only the sanitizer-survival technical
+  constraints appended; no apology framing). The mode persists on `pages.mode`
+  (migration 0004, default `guided`; `pageRow()` sends it only when
+  `freestyle` so creation works before the migration runs), and revises
+  inherit it automatically. Sanitizer/CSP are untouched; external images in
+  generated pages remain banned (freestyle asks Stitch to reinterpret any
+  requested photos as CSS/emoji art).
 - **Attachments are design references only.** They are uploaded to Stitch;
   they never appear inside published pages (no `<img>` in sanitized HTML).
+  When one is attached, `buildPrompt` explicitly directs Stitch to follow it
+  as the design direction, an upload-path failure logs and bumps
+  `metric:generation_attachment_fallbacks` before falling back to text-only,
+  and revises pass the image through for their no-screen fallback.
   First-party image serving (CSP `img-src 'self'` + storage renderer) is a
   future feature requiring explicit owner approval.
 - **Language auto-detects** from the prompt (Malay marker words in
@@ -125,6 +139,10 @@ machine); `npm run doctor` verifies whether migrations are applied.
   keys are only sent when set, for the same reason.
 - Without migration 0002, attached images are silently dropped (generation
   continues text-only) — `npm run doctor` catches the missing migration.
+- Until migration 0004 runs, freestyle page creation fails at the DB insert
+  (`pages.mode` doesn't exist yet, and `pageRow()` sends it for freestyle);
+  guided creation is unaffected. `npm run doctor` catches the missing
+  migration.
 - `JOBS_MODE=inline` runs jobs in-process right after the response; production
   uses `JOBS_MODE=supabase` (pg_net dispatch + cron sweep), which additionally
   requires the `app_config.worker_url`/`jobs_secret` rows to match `JOBS_SECRET`.

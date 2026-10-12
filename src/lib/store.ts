@@ -9,7 +9,7 @@ const draftRetention = 60 * 60 * 24 * 45;
 type PageRow = {
   id: string; slug: string; owner_hash: string; prompt: string;
   recipient_name: string | null; sender_name: string | null; tone: PageRecord["tone"] | null; language: PageRecord["language"] | null;
-  attachment_path: string | null; attachment_mime: string | null;
+  attachment_path: string | null; attachment_mime: string | null; mode: PageRecord["mode"] | null;
   status: PageRecord["status"]; latest_version: number; active_version: number | null; revision_count: number;
   created_at: string; published_at: string | null; expires_at: string | null;
 };
@@ -32,6 +32,7 @@ function toPage(row: PageRow): PageRecord {
     recipientName: row.recipient_name || undefined, senderName: row.sender_name || undefined,
     tone: row.tone || undefined, language: row.language || undefined,
     attachmentPath: row.attachment_path || undefined, attachmentMime: row.attachment_mime || undefined,
+    mode: row.mode === "freestyle" ? "freestyle" : "guided",
     status: row.status,
     latestVersion: row.latest_version, activeVersion: row.active_version, revisionCount: row.revision_count,
     createdAt: iso(row.created_at)!, publishedAt: iso(row.published_at), expiresAt: iso(row.expires_at),
@@ -66,6 +67,10 @@ function pageRow(page: PageRecord) {
     // Only sent when set, so pages keep saving on projects that have not run
     // migration 0002 yet (and so NULL columns stay untouched on updates).
     ...(page.attachmentPath ? { attachment_path: page.attachmentPath, attachment_mime: page.attachmentMime || null } : {}),
+    // Same convention for `mode` (migration 0004): only sent when freestyle,
+    // so creation keeps working before the migration adds the column — the
+    // column default 'guided' covers every other case.
+    ...(page.mode === "freestyle" ? { mode: page.mode } : {}),
     status: page.status,
     latest_version: page.latestVersion, active_version: page.activeVersion, revision_count: page.revisionCount,
     created_at: page.createdAt, published_at: page.publishedAt || null, expires_at: page.expiresAt || null,

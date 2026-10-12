@@ -1,5 +1,6 @@
 import "server-only";
 import { stitch } from "@google/stitch-sdk";
+import { recordMetric } from "./limits";
 import type { DesignGenerator, DesignResult } from "./types";
 
 const MAX_HTML_BYTES = 2_000_000;
@@ -71,21 +72,25 @@ class StitchGenerator implements DesignGenerator {
     // An attached image becomes a screen in the project; editing it with the
     // prompt turns the image into the design's starting point. Any failure in
     // that path falls back to a plain text generation — attachments are a
-    // bonus, never a blocker.
+    // bonus, never a blocker, but the fallback is logged and counted so a
+    // silently dropped attachment is visible in metrics.
     if (input.imagePath) {
       try {
         const [uploaded] = await project.upload(input.imagePath);
         if (uploaded) return await fromScreen(project.id, await uploaded.edit(input.prompt, "MOBILE"));
-      } catch {
-        // fall through to text-only generation
+        throw new Error("Stitch upload returned no screen");
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : "unknown";
+        console.error("attachment upload failed; falling back to text-only generation", message.slice(0, 160));
+        recordMetric("generation_attachment_fallbacks").catch(() => undefined);
       }
     }
     const screen = await project.generate(input.prompt, "MOBILE");
     return fromScreen(project.id, screen);
   }
 
-  async revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string }) {
-    if (!input.projectId || !input.screenId) return this.generate({ prompt: `${input.prompt}\nRevision: ${input.instruction}` });
+  async revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string; imagePath?: string }) {
+    if (!input.projectId || !input.screenId) return this.generate({ prompt: `${input.prompt}\nRevision: ${input.instruction}`, imagePath: input.imagePath });
     const project = stitch.project(input.projectId);
     const screen = await project.screen(input.screenId).edit(input.instruction, "MOBILE");
     return fromScreen(project.id, screen);
@@ -97,7 +102,7 @@ class MockGenerator implements DesignGenerator {
     const escaped = input.prompt.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     return { provider: "mock", html: `<!doctype html><html><head><title>A little note</title><style>body{font-family:Georgia,serif;background:#fff7ee;color:#402f39;padding:3rem;max-width:44rem;margin:auto}h1{font-size:3rem}p{line-height:1.7}.demo{background:#ffe9a7;padding:1rem;border-radius:1rem}</style></head><body><p class="demo">Demo preview — generated without Stitch</p><h1>I'm sorry 💐</h1><p>${escaped}</p>${input.imagePath ? "<p>(An attached image would guide the design here.)</p>" : ""}<p>Thank you for hearing me out.</p></body></html>` };
   }
-  async revise(input: { prompt: string; instruction: string }) { return this.generate({ prompt: `${input.prompt}\n${input.instruction}` }); }
+  async revise(input: { prompt: string; instruction: string; imagePath?: string }) { return this.generate({ prompt: `${input.prompt}\n${input.instruction}`, imagePath: input.imagePath }); }
 }
 
 export function designGenerator(): DesignGenerator {

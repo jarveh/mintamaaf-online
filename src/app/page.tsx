@@ -16,7 +16,7 @@ export default function HomePage() {
             <span className="pill mint">♡ Share it</span>
           </div>
           <h1>From <em>sorry</em> to something special.</h1>
-          <p className="hero-sub">Turn the words you wish you could say into a beautiful little page. Personal, thoughtful, and ready to share.</p>
+          <p className="hero-sub">Turn the words you wish you could say into a beautiful little page. Let us art-direct it, or go freestyle and describe the design yourself.</p>
           <GenerateForm />
         </main>
       </div>
@@ -25,7 +25,7 @@ export default function HomePage() {
         <h2>Three steps to a heartfelt note.</h2>
         <p className="section-intro">Start with your own words. Mintamaaf helps you make them feel as special as the person receiving them.</p>
         <div className="cards">
-          <div className="card"><span className="number">1</span><h3>Tell your story</h3><p>Write what happened, who it is for, and the feeling you want to convey.</p></div>
+          <div className="card"><span className="number">1</span><h3>Tell your story</h3><p>Write what happened, who it is for, and the feeling you want to convey. Pick Guided for a polished note, or Freestyle to direct the design yourself.</p></div>
           <div className="card"><span className="number">2</span><h3>Make it yours</h3><p>Preview the page and keep tweaking until it feels exactly right.</p></div>
           <div className="card"><span className="number">3</span><h3>Send the link</h3><p>Publish a private-feeling link and let your words do the talking.</p></div>
         </div>

@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
   if (!mutationAllowed(request)) return error("Invalid origin", 403);
   const form = await request.formData().catch(() => null);
   if (!form) return error("Please write your story (20–1200 characters).");
-  const parsed = createSchema.safeParse({ prompt: form.get("prompt"), idempotencyKey: form.get("idempotencyKey") });
+  // `?? undefined` so a missing mode field (stale cached client, curl) takes
+  // the schema default instead of failing — zod .default() only sees undefined.
+  const parsed = createSchema.safeParse({ prompt: form.get("prompt"), idempotencyKey: form.get("idempotencyKey"), mode: form.get("mode") ?? undefined });
   if (!parsed.success) return error("Please write a story of 20–1200 characters.");
   const file = form.get("attachment");
   let attachment: { bytes: Uint8Array; mime: string } | null = null;
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
   const now = new Date().toISOString();
   const page: PageRecord = {
     id: randomUUID(), slug: randomBytes(12).toString("base64url"), ownerHash,
-    prompt: parsed.data.prompt, status: "draft", latestVersion: 0, activeVersion: null,
+    prompt: parsed.data.prompt, mode: parsed.data.mode, status: "draft", latestVersion: 0, activeVersion: null,
     revisionCount: 0, createdAt: now,
   };
   const job: JobRecord = { id: randomUUID(), pageId: page.id, kind: "create", status: "queued", progressLabel: "Waiting to begin", createdAt: now };

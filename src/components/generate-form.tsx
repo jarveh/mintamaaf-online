@@ -1,6 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import type { GenerationMode } from "@/lib/types";
 
 const examples = [
   "I forgot our anniversary. Make a warm, playful page for Sarah with flowers and a sincere apology.",
@@ -10,12 +11,18 @@ const examples = [
 
 const exampleLabels = ["Forgot a special day", "A friendship apology", "Family note in Malay"];
 
+const modeOptions: { id: GenerationMode; title: string; hint: string }[] = [
+  { id: "guided", title: "Guided", hint: "We art-direct a polished one-page note for you" },
+  { id: "freestyle", title: "Freestyle", hint: "Your words direct the whole design — layout, colors, vibe, everything" },
+];
+
 const MAX_IMAGE_BYTES = 5_000_000;
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 export function GenerateForm() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
+  const [mode, setMode] = useState<GenerationMode>("guided");
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
   const [busy, setBusy] = useState(false);
@@ -42,6 +49,7 @@ export function GenerateForm() {
     try {
       const form = new FormData();
       form.set("prompt", prompt);
+      form.set("mode", mode);
       form.set("idempotencyKey", crypto.randomUUID());
       if (image) form.set("attachment", image);
       const response = await fetch("/api/generations", { method: "POST", body: form });
@@ -55,6 +63,14 @@ export function GenerateForm() {
     <>
       <form id="create" className="prompt-card" onSubmit={submit}>
         <textarea aria-label="Your apology idea" placeholder="Tell us what happened and what you'd like to say — names, the story, the feeling, any style you have in mind..." value={prompt} onChange={(event) => setPrompt(event.target.value)} minLength={20} maxLength={1200} required />
+        <div className="mode-row" role="group" aria-label="Page style">
+          {modeOptions.map((option) => (
+            <button key={option.id} type="button" className={`mode-option${mode === option.id ? " selected" : ""}`} aria-pressed={mode === option.id} onClick={() => setMode(option.id)}>
+              <strong>{option.title}</strong>
+              <span>{option.hint}</span>
+            </button>
+          ))}
+        </div>
         <div className="attach-row">
           <input ref={fileInput} id="attachment" type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={pickImage} />
           {image ? (

@@ -51,12 +51,15 @@ export async function processQueuedJob(jobId: string): Promise<JobOutcome> {
   try {
     job.progressLabel = job.kind === "revise" ? "Revising your page" : "Designing your page";
     await saveJob(job);
-    const prompt = buildPrompt(page.prompt);
-    const imagePath = job.kind === "revise" ? undefined : await attachmentImagePath(page);
+    const prompt = buildPrompt(page.prompt, { mode: page.mode, withAttachment: Boolean(page.attachmentPath) });
+    // Revises pass the image too: unused when the Stitch screen carries
+    // forward, but keeps the attachment in play if revise falls back to a
+    // fresh text generation.
+    const imagePath = await attachmentImagePath(page);
     attachmentDir = imagePath?.dir;
     const previous = job.kind === "revise" ? await getVersion(page.id, page.latestVersion) : null;
     const result = job.kind === "revise"
-      ? await designGenerator().revise({ projectId: previous?.projectId, screenId: previous?.screenId, prompt, instruction: job.instruction || "Make it warmer" })
+      ? await designGenerator().revise({ projectId: previous?.projectId, screenId: previous?.screenId, prompt, instruction: job.instruction || "Make it warmer", imagePath: imagePath?.file })
       : await designGenerator().generate({ prompt, imagePath: imagePath?.file });
     job.progressLabel = "Checking your page";
     await saveJob(job);
