@@ -61,6 +61,6 @@ export interface DesignResult {
 }
 
 export interface DesignGenerator {
-  generate(input: { prompt: string; imagePath?: string }): Promise<DesignResult>;
-  revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string; imagePath?: string }): Promise<DesignResult>;
+  generate(input: { prompt: string; imagePath?: string; mode?: GenerationMode }): Promise<DesignResult>;
+  revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string; imagePath?: string; mode?: GenerationMode }): Promise<DesignResult>;
 }

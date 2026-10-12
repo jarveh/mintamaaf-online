@@ -1,0 +1,25 @@
+## Fix 1 — Attached photos appear in the page as the real photo
+
+**Root cause:** today nothing can embed a photo. The sanitizer strips every `<img>`, `PAGE_CSP` sets `img-src 'none'`, and `buildPrompt()` (validation.ts:29-31) explicitly tells Stitch to *reinterpret* the attachment as CSS/emoji art. Your penguin page is working exactly as built.
+
+You're the owner approving the "first-party image serving" feature that AGENTS.md reserved for explicit approval, so:
+
+1. **`src/lib/validation.ts` — new attachment directive (both modes).** Replace the "reinterpreted as CSS/emoji art" line with: *unless the brief explicitly asks to create new imagery based on the attached photo, the photo itself must appear unmodified — no redraw/restyle/crop — placed via exactly `<img src="__MINTAMAAF_ATTACHMENT__" alt="">`* (app swaps in the real image). Stitch may decorate around it (frame, polaroid border, caption, shadow, slight rotation) but never alter the photo. The "For imagery… never external image files" bullets get a carve-out for this placeholder only. Export the token constant.
+2. **`src/lib/sanitize.ts` — allowlist widening, with tests.** `sanitizeGeneratedHtml()` gains an options param `{ attachmentSrc?: string }`. Only when provided: `img` joins allowedTags with `src/alt/width/height`; an img transform keeps the tag **only if `src` exactly equals `attachmentSrc`** (anything else — external URLs, `data:`, other paths, `srcset`, `onerror`, `style` — is neutralized); alt is character-sanitized and capped, width/height digits-only. Without the option, behavior is byte-identical to today. `PAGE_CSP` becomes `img-src 'self'` (external loads stay banned via `default-src 'none'`; `'self'` can only reach our own attachment route).
+3. **`src/lib/job-runner.ts` — token rewrite + fallback.** After generation, when the page has an attachment: replace the token with `/api/attachments/{page.id}`, then sanitize with that `attachmentSrc`. Fallback: if Stitch ignored the token but emitted `<img>` with an allowlisted Google download host, re-point it to the attachment URL (reuse `trustedDownloadUrl` from generator.ts, newly exported) — it would otherwise be stripped and leave a hole. Bump metric `generation_attachment_embeds` when the stored HTML actually contains the image.
+4. **New route `src/app/api/attachments/[id]/route.ts`** — public GET keyed by the page's random UUID (unguessable, same trust model as the slug; needed because published pages and the draft iframe fetch it from the *page* origin). 404 for unknown/blocked/expired pages or missing object; serves bucket bytes with the stored mime (png/jpeg/webp only), `Content-Disposition: inline`, `nosniff`, `CSP: default-src 'none'; sandbox`, short private cache. Existing cleanup already deletes the attachment object at expiry. **No DB migration needed.**
+5. `src/lib/config.ts` — share the `ATTACHMENT_MIMES` list between the create route and the new route.
+
+## Fix 2 — Freestyle gets real desktop composition
+
+6. **`src/lib/generator.ts` + `src/lib/types.ts`:** generate/revise inputs gain the page mode; Stitch device type becomes **DESKTOP for freestyle, MOBILE for guided** (you confirmed) — applied to `generate`, the upload-`edit` attachment path, revise `screen.edit`, and fallbacks. Job-runner passes `page.mode`. (SDK 0.3.5 supports `"DESKTOP"`; this is why freestyle currently renders as a narrow centered column.)
+7. **`src/lib/validation.ts` freestyle wrapper:** add composition direction — deliberate page structure (header/hero/sections/footer as the brief calls for), asymmetric or multi-column layouts, strong typographic hierarchy, generous whitespace, *never* a generic centered single-column stack; reword "Mobile-first" since freestyle now designs desktop-first (still responsive). Guided mode otherwise untouched. Your nazar reference (header bar, two-column hero with framed photo + caption, section cards, footer) is the quality bar this language points at.
+
+## Docs & tests
+
+8. **AGENTS.md:** decisions-log entry (2026-10-12, owner-approved) superseding "attachments are design references only"; update the CSP note, architecture map, and pitfalls. **README:** publish-path release-check wording — external images still banned, first-party attachment images now allowed.
+9. **Tests:** `validation.test.ts` — placeholder token + "unmodified" wording only when `withAttachment`, freestyle composition wording present. `sanitize.test.ts` — img still stripped without the option; exact-src img survives with clean attributes; foreign/data:/mismatched srcs neutralized; CSP asserts `img-src 'self'` + `default-src 'none'`.
+
+## Verification
+
+`npm run typecheck` + `npm test` + `npm run build` + `npm run doctor`, then one live end-to-end check on the dev server: create a freestyle page with your penguin photo attached, confirm the published HTML contains `/api/attachments/{id}` and the image renders, then delete the test page via `npm run moderate`. Consumes one Stitch generation (beta limits are unlimited). After that you can re-run your original prompt for real.

@@ -1,11 +1,16 @@
 import "server-only";
 import { stitch } from "@google/stitch-sdk";
 import { recordMetric } from "./limits";
-import type { DesignGenerator, DesignResult } from "./types";
+import type { DesignGenerator, DesignResult, GenerationMode } from "./types";
 
 const MAX_HTML_BYTES = 2_000_000;
 // Verified Stitch 0.3.5 download hosts: HTML on *.usercontent.google.com, screenshots on lh3.googleusercontent.com.
 const ALLOWED_DOWNLOAD_HOSTS = ["storage.googleapis.com", "googleusercontent.com", "googleapis.com", "usercontent.google.com"];
+// Stitch marks "an image goes here" in generated HTML with its own placeholder
+// asset instead of copying our prompt's token verbatim (observed live 12 Oct
+// 2026). We never fetch it — the job runner re-points such srcs at the page's
+// first-party attachment URL, which is the only img the sanitizer allows.
+const STITCH_IMAGE_PLACEHOLDER = "https://www.gstatic.com/labs-code/stitch/stitch-placeholder-";
 
 function trustedDownloadUrl(raw: string): URL {
   const url = new URL(raw);
@@ -14,6 +19,26 @@ function trustedDownloadUrl(raw: string): URL {
     throw new Error("Unrecognized provider download host");
   }
   return url;
+}
+
+// Used by the job runner to spot provider-hosted images inside generated HTML
+// (the attachment fallback rewrite): provider download hosts, or Stitch's own
+// placeholder asset. Anything else is false.
+export function isProviderEmbeddedImageSrc(raw: string): boolean {
+  if (raw.startsWith(STITCH_IMAGE_PLACEHOLDER)) return true;
+  try {
+    trustedDownloadUrl(raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Freestyle briefs art-direct their own wide layouts, so Stitch designs them on
+// a desktop canvas; guided stays phone-first. Applied to every generation and
+// edit call so a page and its revisions keep the same canvas.
+function deviceType(mode?: GenerationMode): "MOBILE" | "DESKTOP" {
+  return mode === "freestyle" ? "DESKTOP" : "MOBILE";
 }
 
 // getHtml() normally returns a cached download URL from the generation response,
@@ -67,7 +92,7 @@ async function fromScreen(projectId: string, screen: { id: string; getHtml(): Pr
 }
 
 class StitchGenerator implements DesignGenerator {
-  async generate(input: { prompt: string; imagePath?: string }) {
+  async generate(input: { prompt: string; imagePath?: string; mode?: GenerationMode }) {
     const project = await stitch.createProject("Mintamaaf page");
     // An attached image becomes a screen in the project; editing it with the
     // prompt turns the image into the design's starting point. Any failure in
@@ -77,7 +102,7 @@ class StitchGenerator implements DesignGenerator {
     if (input.imagePath) {
       try {
         const [uploaded] = await project.upload(input.imagePath);
-        if (uploaded) return await fromScreen(project.id, await uploaded.edit(input.prompt, "MOBILE"));
+        if (uploaded) return await fromScreen(project.id, await uploaded.edit(input.prompt, deviceType(input.mode)));
         throw new Error("Stitch upload returned no screen");
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : "unknown";
@@ -85,24 +110,24 @@ class StitchGenerator implements DesignGenerator {
         recordMetric("generation_attachment_fallbacks").catch(() => undefined);
       }
     }
-    const screen = await project.generate(input.prompt, "MOBILE");
+    const screen = await project.generate(input.prompt, deviceType(input.mode));
     return fromScreen(project.id, screen);
   }
 
-  async revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string; imagePath?: string }) {
-    if (!input.projectId || !input.screenId) return this.generate({ prompt: `${input.prompt}\nRevision: ${input.instruction}`, imagePath: input.imagePath });
+  async revise(input: { projectId?: string; screenId?: string; prompt: string; instruction: string; imagePath?: string; mode?: GenerationMode }) {
+    if (!input.projectId || !input.screenId) return this.generate({ prompt: `${input.prompt}\nRevision: ${input.instruction}`, imagePath: input.imagePath, mode: input.mode });
     const project = stitch.project(input.projectId);
-    const screen = await project.screen(input.screenId).edit(input.instruction, "MOBILE");
+    const screen = await project.screen(input.screenId).edit(input.instruction, deviceType(input.mode));
     return fromScreen(project.id, screen);
   }
 }
 
 class MockGenerator implements DesignGenerator {
-  async generate(input: { prompt: string; imagePath?: string }): Promise<DesignResult> {
+  async generate(input: { prompt: string; imagePath?: string; mode?: GenerationMode }): Promise<DesignResult> {
     const escaped = input.prompt.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     return { provider: "mock", html: `<!doctype html><html><head><title>A little note</title><style>body{font-family:Georgia,serif;background:#fff7ee;color:#402f39;padding:3rem;max-width:44rem;margin:auto}h1{font-size:3rem}p{line-height:1.7}.demo{background:#ffe9a7;padding:1rem;border-radius:1rem}</style></head><body><p class="demo">Demo preview — generated without Stitch</p><h1>I'm sorry 💐</h1><p>${escaped}</p>${input.imagePath ? "<p>(An attached image would guide the design here.)</p>" : ""}<p>Thank you for hearing me out.</p></body></html>` };
   }
-  async revise(input: { prompt: string; instruction: string; imagePath?: string }) { return this.generate({ prompt: `${input.prompt}\n${input.instruction}`, imagePath: input.imagePath }); }
+  async revise(input: { prompt: string; instruction: string; imagePath?: string; mode?: GenerationMode }) { return this.generate({ prompt: `${input.prompt}\n${input.instruction}`, imagePath: input.imagePath, mode: input.mode }); }
 }
 
 export function designGenerator(): DesignGenerator {

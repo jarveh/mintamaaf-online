@@ -2,14 +2,33 @@ import "server-only";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { designGenerator } from "./generator";
+import { designGenerator, isProviderEmbeddedImageSrc } from "./generator";
 import { recordMetric, recordStorageBytes } from "./limits";
 import { sanitizeGeneratedHtml } from "./sanitize";
 import { claimJob, getJob, getPage, getVersion, loadAttachment, retryJob, saveHtml, saveJob, savePage, saveScreenshot, saveVersion } from "./store";
 import type { PageRecord, VersionRecord } from "./types";
-import { buildPrompt, detectLanguage } from "./validation";
+import { ATTACHMENT_IMAGE_TOKEN, buildPrompt, detectLanguage } from "./validation";
 
 export type JobOutcome = "ran" | "busy" | "skipped";
+
+// First-party URL where the page's attached photo is served from (public, keyed
+// by the unguessable page UUID; see src/app/api/attachments/[id]/route.ts).
+function attachmentSrcFor(page: PageRecord): string | undefined {
+  return page.attachmentPath ? `/api/attachments/${page.id}` : undefined;
+}
+
+// The prompt asks Stitch to place the attached photo via the placeholder
+// element; swap it for the real first-party URL. Stitch doesn't always copy the
+// token — live it emits its own placeholder asset (or a provider-hosted image)
+// for the attached photo — so re-point those srcs at the real file too. The
+// sanitizer would strip every other src and leave a hole where the photo
+// belongs.
+function embedAttachment(html: string, attachmentSrc: string): string {
+  const withToken = html.split(ATTACHMENT_IMAGE_TOKEN).join(attachmentSrc);
+  if (withToken.includes(attachmentSrc)) return withToken;
+  return withToken.replace(/(<img\b[^>]*?\bsrc=)(["'])([^"']+)\2/gi, (whole, lead: string, quote: string, url: string) =>
+    isProviderEmbeddedImageSrc(url) ? `${lead}${quote}${attachmentSrc}${quote}` : whole);
+}
 
 // Write the stored attachment to a temp file for the SDK's upload(path) API.
 // Returns the temp dir alongside the file so the caller can clean it up.
@@ -52,6 +71,7 @@ export async function processQueuedJob(jobId: string): Promise<JobOutcome> {
     job.progressLabel = job.kind === "revise" ? "Revising your page" : "Designing your page";
     await saveJob(job);
     const prompt = buildPrompt(page.prompt, { mode: page.mode, withAttachment: Boolean(page.attachmentPath) });
+    const attachmentSrc = attachmentSrcFor(page);
     // Revises pass the image too: unused when the Stitch screen carries
     // forward, but keeps the attachment in play if revise falls back to a
     // fresh text generation.
@@ -59,11 +79,12 @@ export async function processQueuedJob(jobId: string): Promise<JobOutcome> {
     attachmentDir = imagePath?.dir;
     const previous = job.kind === "revise" ? await getVersion(page.id, page.latestVersion) : null;
     const result = job.kind === "revise"
-      ? await designGenerator().revise({ projectId: previous?.projectId, screenId: previous?.screenId, prompt, instruction: job.instruction || "Make it warmer", imagePath: imagePath?.file })
-      : await designGenerator().generate({ prompt, imagePath: imagePath?.file });
+      ? await designGenerator().revise({ projectId: previous?.projectId, screenId: previous?.screenId, prompt, instruction: job.instruction || "Make it warmer", imagePath: imagePath?.file, mode: page.mode })
+      : await designGenerator().generate({ prompt, imagePath: imagePath?.file, mode: page.mode });
     job.progressLabel = "Checking your page";
     await saveJob(job);
-    const html = sanitizeGeneratedHtml(result.html, detectLanguage(page.prompt));
+    const html = sanitizeGeneratedHtml(attachmentSrc ? embedAttachment(result.html, attachmentSrc) : result.html, detectLanguage(page.prompt), { attachmentSrc });
+    if (attachmentSrc && html.includes(attachmentSrc)) recordMetric("generation_attachment_embeds").catch(() => undefined);
     const versionNumber = page.latestVersion + 1;
     const htmlPath = await saveHtml(page.id, versionNumber, html);
     let screenshotPath: string | undefined;

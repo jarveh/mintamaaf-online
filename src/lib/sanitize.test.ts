@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeGeneratedHtml } from "./sanitize";
+import { PAGE_CSP, sanitizeGeneratedHtml } from "./sanitize";
 
 describe("generated HTML boundary", () => {
   it("keeps readable layout while removing executable and network features", () => {
@@ -52,5 +52,53 @@ describe("generated HTML boundary", () => {
     expect(clean).not.toContain("bad name");
     expect(clean).not.toContain("@font-face");
     expect(clean).not.toContain("@import");
+  });
+});
+
+describe("attached photo boundary", () => {
+  const NOTE = "<style>body{color:#333}</style><main><h1>Dear Sam</h1><p>I am sorry I missed your birthday party last weekend.</p></main>";
+
+  it("still strips every image when no attachment is allowed", () => {
+    const clean = sanitizeGeneratedHtml(`${NOTE}<img src="/api/attachments/p1" alt="photo">`);
+    expect(clean).not.toContain("<img");
+  });
+
+  it("lets exactly the attached photo through and rebuilds its attributes", () => {
+    const src = "/api/attachments/1c0ffee0-dead-4bef-babe-000000000001";
+    const dirty = `<style>body{color:#333}</style><main><figure class="frame"><img src="${src}" alt="Us at the pier" width="800" height="600" class="photo polaroid" style="border:2px solid red" srcset="${src} 2x" onerror="alert(1)" data-x="1"><figcaption>Miss you</figcaption></figure><p>I am sorry I missed your birthday party last weekend.</p></main>`;
+    const clean = sanitizeGeneratedHtml(dirty, "en", { attachmentSrc: src });
+    expect(clean).toContain(`<img src="${src}"`);
+    expect(clean).toContain('alt="Us at the pier"');
+    expect(clean).toContain('width="800"');
+    expect(clean).toContain('height="600"');
+    expect(clean).toContain('class="photo polaroid"');
+    expect(clean).not.toContain("onerror");
+    expect(clean).not.toContain("srcset");
+    expect(clean).not.toContain("data-x");
+    expect(clean).not.toContain("style=");
+  });
+
+  it("keeps an attached photo with no attributes beyond its src", () => {
+    const src = "/api/attachments/1c0ffee0-dead-4bef-babe-000000000001";
+    const clean = sanitizeGeneratedHtml(`${NOTE}<img src="${src}">`, "en", { attachmentSrc: src });
+    expect(clean).toContain(`<img src="${src}"`);
+    expect((clean.match(/<img/g) || []).length).toBe(1);
+  });
+
+  it("neutralizes every other image src: external, data, protocol-relative, token, wrong path", () => {
+    const src = "/api/attachments/1c0ffee0-dead-4bef-babe-000000000001";
+    const dirty = `<style>body{color:#333}</style><main><p>I am sorry I missed your birthday party last weekend.</p><img src="https://lh3.googleusercontent.com/a.png"><img src="data:image/png;base64,AAAA"><img src="//evil.example/a.png"><img src="__MINTAMAAF_ATTACHMENT__"><img src="/api/attachments/other-page"></main>`;
+    const clean = sanitizeGeneratedHtml(dirty, "en", { attachmentSrc: src });
+    expect(clean).not.toContain("<img");
+    expect(clean).not.toContain("lh3.googleusercontent");
+    expect(clean).not.toContain("data:image");
+    expect(clean).not.toContain("evil.example");
+    expect(clean).not.toContain("__MINTAMAAF_ATTACHMENT__");
+  });
+
+  it("keeps external loads banned while allowing only first-party images", () => {
+    expect(PAGE_CSP).toContain("default-src 'none'");
+    expect(PAGE_CSP).toContain("img-src 'self'");
+    expect(PAGE_CSP).not.toMatch(/img-src[^;]*\*/);
   });
 });

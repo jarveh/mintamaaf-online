@@ -61,16 +61,48 @@ function cleanStylesheets(input: string): string {
   return root.toString();
 }
 
-export function sanitizeGeneratedHtml(raw: string, language: "en" | "ms" = "en"): string {
+export interface SanitizeOptions {
+  /** When set, the page may embed exactly one image: an <img> whose src equals this first-party attachment URL. */
+  attachmentSrc?: string;
+}
+
+const BASE_ALLOWED_TAGS = ["main", "section", "article", "header", "footer", "nav", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "small", "br", "hr", "ul", "ol", "li", "blockquote", "a", "button"];
+
+// The attached photo passes through only when its src matches the first-party
+// attachment URL exactly; every attribute is rebuilt from this allowlist (the
+// prompt's placeholder token, external/data:/protocol-relative srcs, srcset,
+// event handlers, and inline styles never survive). Any other <img> becomes an
+// empty span.
+function attachmentImageTransform(allowedSrc: string) {
+  return (tagName: string, attribs: Record<string, string>) => {
+    if (attribs.src !== allowedSrc) return { tagName: "span", attribs: {} };
+    const next: Record<string, string> = { src: allowedSrc };
+    const alt = attribs.alt ? attribs.alt.replace(/[\r\n\t"'<>\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) : "";
+    if (alt) next.alt = alt;
+    if (/^\d{1,4}$/.test(attribs.width || "")) next.width = attribs.width;
+    if (/^\d{1,4}$/.test(attribs.height || "")) next.height = attribs.height;
+    // Classes only pick styles the CSS allowlist already vetted; keep them
+    // tightly validated so nothing else rides along in the attribute.
+    const cls = attribs.class ? attribs.class.trim() : "";
+    if (cls && /^[\w\s-]{0,300}$/.test(cls)) next.class = cls;
+    return { tagName, attribs: next };
+  };
+}
+
+export function sanitizeGeneratedHtml(raw: string, language: "en" | "ms" = "en", options: SanitizeOptions = {}): string {
   if (Buffer.byteLength(raw, "utf8") > 2_000_000 || (raw.match(/</g) || []).length > 12_000) throw new Error("Generated HTML too large");
   const styleSources = [...raw.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)].slice(0, 5).map((match) => match[1]);
   const styles = cleanStylesheets(styleSources.join("\n"));
+  const attachmentSrc = options.attachmentSrc;
   const body = sanitizeHtml(raw, {
-    allowedTags: ["main", "section", "article", "header", "footer", "nav", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "small", "br", "hr", "ul", "ol", "li", "blockquote", "a", "button"],
-    allowedAttributes: { "*": ["class", "id", "title", "role", "aria-label", "aria-hidden", "style", "lang", "dir"], a: ["href"] },
+    allowedTags: attachmentSrc ? [...BASE_ALLOWED_TAGS, "img"] : BASE_ALLOWED_TAGS,
+    allowedAttributes: attachmentSrc
+      ? { "*": ["class", "id", "title", "role", "aria-label", "aria-hidden", "style", "lang", "dir"], a: ["href"], img: ["src", "alt", "width", "height", "class"] }
+      : { "*": ["class", "id", "title", "role", "aria-label", "aria-hidden", "style", "lang", "dir"], a: ["href"] },
     allowedSchemes: [],
     disallowedTagsMode: "discard",
     transformTags: {
+      ...(attachmentSrc ? { img: attachmentImageTransform(attachmentSrc) } : {}),
       "*": (tagName, attribs) => {
         const next = { ...attribs };
         if (next.style) next.style = cleanDeclarations(next.style);
@@ -86,4 +118,7 @@ export function sanitizeGeneratedHtml(raw: string, language: "en" | "ms" = "en")
   return `<!doctype html><html lang="${language}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>A note for you · Mintamaaf</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;min-height:100vh}button{font:inherit}@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}${styles}</style></head><body>${body}</body></html>`;
 }
 
-export const PAGE_CSP = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'none'; connect-src 'none'; img-src 'none'; font-src 'none'; style-src 'unsafe-inline'; object-src 'none'";
+// 'self' under img-src reaches only this app's own attachment route
+// (/api/attachments/{pageId}); every external load stays banned by
+// default-src 'none' and the sanitizer's single-allowlisted-src rule.
+export const PAGE_CSP = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; script-src 'none'; connect-src 'none'; img-src 'self'; font-src 'none'; style-src 'unsafe-inline'; object-src 'none'";

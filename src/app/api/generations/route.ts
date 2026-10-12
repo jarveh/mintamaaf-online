@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { error, mutationAllowed } from "@/lib/http";
-import { LIMITS } from "@/lib/config";
+import { ATTACHMENT_MIMES, LIMITS } from "@/lib/config";
 import { createSchema } from "@/lib/validation";
 import { currentOwnerToken, hashToken, newOwnerToken, ownerCookie } from "@/lib/owner";
 import { generationAllowed, ipAllowed, recordMetric } from "@/lib/limits";
@@ -10,7 +10,6 @@ import { findIdempotentRecord, saveAttachment, saveIdempotentRecord, saveJob, sa
 import type { JobRecord, PageRecord } from "@/lib/types";
 
 const MAX_ATTACHMENT_BYTES = 5_000_000;
-const ATTACHMENT_MIMES = ["image/png", "image/jpeg", "image/webp"];
 
 // Content-type headers are client-controlled; sniff the actual bytes so only
 // real PNG/JPEG/WebP files ever reach storage or the provider.

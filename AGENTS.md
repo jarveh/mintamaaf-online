@@ -16,11 +16,14 @@ publish → `/p/:slug` (expires in 7 days).
 ## Non-negotiable rules
 
 1. **Generated HTML is untrusted.** Everything passes through
-   `src/lib/sanitize.ts`: script/form/iframe/img-stripping allowlist, a
-   CSS-property allowlist, phishing-text scan. `PAGE_CSP` allows zero external
-   loads (`default-src 'none'`, `img-src 'none'`, `font-src 'none'`, no
-   scripts). Never weaken the sanitizer or CSP to preserve a design. If a
-   design breaks, fix the prompt or *safely widen the allowlist with tests*.
+   `src/lib/sanitize.ts`: script/form/iframe-stripping allowlist, a
+   CSS-property allowlist, a phishing-text scan, and an `<img>` rule that
+   allows exactly one src — the page's own first-party attachment URL — and
+   neutralizes every other image. `PAGE_CSP` allows zero external loads
+   (`default-src 'none'`, `img-src 'self'` (reaches only our attachment
+   route), `font-src 'none'`, no scripts). Never weaken the sanitizer or CSP
+   to preserve a design. If a design breaks, fix the prompt or *safely widen
+   the allowlist with tests*.
 2. **No Gemini/Google-AI API key, ever, until the owner explicitly adds image
    regeneration.** The only AI credential is `STITCH_API_KEY`. (Stitch's own
    backend internally uses Gemini models — that is included in the Stitch key
@@ -66,12 +69,15 @@ machine); `npm run doctor` verifies whether migrations are applied.
 | Preview/publish UI | `src/components/preview-editor.tsx` |
 | Public page renderer (hardened headers) | `src/app/p/[slug]/route.ts` |
 | Draft preview renderer (owner token + frame-ancestors) | `src/app/draft/[id]/route.ts` |
-| API routes | `src/app/api/generations/*`, `src/app/api/pages/[id]/*`, `src/app/api/internal/{jobs,cleanup}` |
+| Attachment image serving (public, unguessable page UUID) | `src/app/api/attachments/[id]/route.ts` |
+| API routes | `src/app/api/generations/*`, `src/app/api/pages/[id]/*`, `src/app/api/attachments/[id]/*`, `src/app/api/internal/{jobs,cleanup}` |
 | Migrations (owner applies via SQL editor) | `supabase/migrations/` |
 
 ## Stitch SDK 0.3.5 facts (verified live 10 Oct 2026)
 
-- API: `stitch.createProject(title)` → `project.generate(prompt, "MOBILE")` →
+- API: `stitch.createProject(title)` → `project.generate(prompt, deviceType)`
+  (deviceType: guided `"MOBILE"`, freestyle `"DESKTOP"` — see `deviceType()` in
+  `src/lib/generator.ts`; the SDK also supports `"TABLET"`/`"AGNOSTIC"`) →
   `screen.getHtml()` / `getImage()` return **download URLs** (NOT content).
   HTML from `contribution.usercontent.google.com`, screenshots from
   `lh3.googleusercontent.com` — both must stay in `ALLOWED_DOWNLOAD_HOSTS`.
@@ -115,17 +121,31 @@ machine); `npm run doctor` verifies whether migrations are applied.
   constraints appended; no apology framing). The mode persists on `pages.mode`
   (migration 0004, default `guided`; `pageRow()` sends it only when
   `freestyle` so creation works before the migration runs), and revises
-  inherit it automatically. Sanitizer/CSP are untouched; external images in
-  generated pages remain banned (freestyle asks Stitch to reinterpret any
-  requested photos as CSS/emoji art).
-- **Attachments are design references only.** They are uploaded to Stitch;
-  they never appear inside published pages (no `<img>` in sanitized HTML).
-  When one is attached, `buildPrompt` explicitly directs Stitch to follow it
-  as the design direction, an upload-path failure logs and bumps
+  inherit it automatically.
+- **2026-10-12 — Attached photos are embedded first-party (owner-approved;
+  supersedes the "attachments are design references only" decision below).**
+  The prompt directs Stitch to place an attached photo unmodified via the
+  `__MINTAMAAF_ATTACHMENT__` placeholder element (unless the brief explicitly
+  asks for new imagery). The job runner rewrites it to
+  `/api/attachments/{pageId}` (re-pointing any allowlisted provider-hosted
+  `<img>` if the placeholder was ignored), and the sanitizer admits an `<img>`
+  only with that exact src (alt/width/height/class rebuilt, all else
+  neutralized). `PAGE_CSP` moved to `img-src 'self'` — external loads stay
+  banned; the image is served by the public, UUID-keyed
+  `src/app/api/attachments/[id]/route.ts` (no cookies; blocked/expired pages
+  404; daily cleanup deletes the object). Metric:
+  `generation_attachment_embeds`.
+- **2026-10-12 — Freestyle designs on a desktop canvas.** Stitch is called
+  with `DESKTOP` for freestyle and `MOBILE` for guided (`deviceType()` in
+  `generator.ts`, applied to generate/upload-edit/revise), and the freestyle
+  prompt demands real composition (header/hero/sections/footer, asymmetric or
+  multi-column layouts) — never a generic centered single-column stack.
+- **Attachments are design references only (superseded 2026-10-12, see
+  above).** They used to be uploaded to Stitch only and never appear inside
+  published pages. Still true: an upload-path failure logs and bumps
   `metric:generation_attachment_fallbacks` before falling back to text-only,
-  and revises pass the image through for their no-screen fallback.
-  First-party image serving (CSP `img-src 'self'` + storage renderer) is a
-  future feature requiring explicit owner approval.
+  and revises pass the image through for their no-screen fallback —
+  attachments must never block a page.
 - **Language auto-detects** from the prompt (Malay marker words in
   `detectLanguage`); the `lang` attribute defaults to `en`.
 

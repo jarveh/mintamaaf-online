@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPrompt, createSchema } from "./validation";
+import { ATTACHMENT_IMAGE_TOKEN, buildPrompt, createSchema } from "./validation";
 
 const REQUEST = "I missed my best friend's wedding. Her name is Sam and I want her to know I care.";
 
@@ -20,6 +20,10 @@ describe("buildPrompt", () => {
     expect(freestyle).toContain("--- CREATOR BRIEF (this is the design direction — follow it exactly) ---");
     expect(freestyle).toContain("layout, structure, number and order of sections, colors, typography style, mood, imagery");
     expect(freestyle).not.toContain("apology microsite");
+    // Freestyle now designs on a desktop canvas with real composition, not a
+    // generic centered column.
+    expect(freestyle).toContain("wide desktop canvas");
+    expect(freestyle).toContain("Never flatten the design into a generic centered single-column stack");
     // The sanitizer's survival constraints must still be present, and must sit
     // outside the brief so the brief cannot override them.
     expect(freestyle).toContain("no external images, no scripts of any kind");
@@ -27,15 +31,17 @@ describe("buildPrompt", () => {
     expect(freestyle.indexOf("Hard requirements")).toBeGreaterThan(freestyle.indexOf("--- END CREATOR BRIEF ---"));
   });
 
-  it("mentions the attached reference image only when one is attached", () => {
+  it("mentions the attached photo only when one is attached, as an embedded unmodified image", () => {
     const withImage = buildPrompt(REQUEST, { withAttachment: true });
     const freestyleWithImage = buildPrompt(REQUEST, { mode: "freestyle", withAttachment: true });
     for (const prompt of [withImage, freestyleWithImage]) {
-      expect(prompt).toContain("The creator attached a reference image");
-      expect(prompt).toContain("cannot embed image files");
+      expect(prompt).toContain("The creator attached a photo with this request");
+      expect(prompt).toContain(`<img src="${ATTACHMENT_IMAGE_TOKEN}" alt="">`);
+      expect(prompt).toContain("completely unmodified");
+      expect(prompt).toContain("If the brief explicitly asks for new imagery based on the photo, omit the placeholder element");
     }
-    expect(buildPrompt(REQUEST)).not.toContain("reference image");
-    expect(buildPrompt(REQUEST, { mode: "freestyle" })).not.toContain("reference image");
+    expect(buildPrompt(REQUEST)).not.toContain(ATTACHMENT_IMAGE_TOKEN);
+    expect(buildPrompt(REQUEST, { mode: "freestyle" })).not.toContain(ATTACHMENT_IMAGE_TOKEN);
   });
 });
 
